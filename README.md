@@ -1,8 +1,17 @@
 # CP24 HLS Kiosk — Native Apple Silicon
 
-A native macOS live-news kiosk with **CP24 and CityNews**, built for Apple Silicon. Version **2.20** plays CP24 through AVPlayer using HLS and the broadcaster’s FairPlay certificate/license exchange, instead of the embedded Jasper web player.
+A native macOS live-news kiosk with **CP24, CityNews, and Global News Toronto**, built for Apple Silicon. Version **2.21** plays CP24 through AVPlayer using HLS and the broadcaster’s FairPlay certificate/license exchange, instead of the embedded Jasper web player.
 
 **[Download notarized DMG for Apple Silicon](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.20/CP24-HLS-Kiosk-Notarized.dmg)** · [All releases](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases)
+
+
+### New in v2.21
+
+[Download v2.21 ZIP — Global + rotation preferences](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.21/CP24-HLS-Kiosk-v2.21-Apple-Silicon.zip)
+
+Adds Global News Toronto (key `3`) and saved per-channel rotation checkboxes in **Settings → Include in automatic rotation and fallback**. All three channels are included by default. Select one to stay on that channel once rotation reaches it; uncheck all to stop automatic switching. Manual switching remains available for every channel. Recovery fallback respects the same selection and skips channels in cooldown.
+
+**v2.21 is ad-hoc signed and is not notarized yet.** The notarized DMG above remains v2.20 and does not include Global or the new rotation settings. To install v2.21, unzip it and move the app to Applications; quit the previous app before replacing it.
 
 ## Requirements and installation
 
@@ -27,6 +36,7 @@ This is a separate app from News TV Kiosk. It uses its own bundle identifier, pr
 | --- | --- | --- |
 | CP24 — startup channel | `1` | Native HLS with FairPlay license requests |
 | CityNews | `2` | Native HLS |
+| Global News Toronto | `3` | Native HLS |
 
 - Native AVPlayer video and audio with adaptive HLS playback.
 - CP24 FairPlay certificate, content-key request, license response, cancellation, and renewal handling.
@@ -49,7 +59,7 @@ Choose a saved switching interval of **1, 5, 10, 20, 30, or 45 minutes**, **1 ho
 | Stream health monitoring | Checks roughly every 15 seconds for failures, missing video, empty buffers, and lack of playback progress. |
 | Recovery with backoff | Retries unhealthy playback with increasing delays, rather than endlessly reloading at a fixed rapid interval. |
 | Brief-stall tolerance | Allows native buffering recovery before the health monitor escalates. |
-| Channel fallback | Requests the other channel after repeated recovery failures. Availability of either stream is not guaranteed. |
+| Channel fallback | Requests another selected channel after repeated recovery failures. Availability of either stream is not guaranteed. |
 | Last known good channel | Tracks successful playback and holds repeatedly failed channels out of auto-rotation for an hour. |
 | Network awareness | Shows **Waiting for network** offline, suppresses offline health-relaunch decisions, and recovers when connectivity returns. |
 | Unhealthy-stream relaunch | Optional clean app relaunch after 10 minutes of unhealthy playback. |
@@ -89,6 +99,7 @@ The **Stream Health Log** records app launches, channel loads, playback failures
 | --- | --- |
 | `1` | CP24 |
 | `2` | CityNews |
+| `3` | Global News Toronto |
 | `Command-R` | Request current-stream recovery/reload |
 | `Esc` | Leave full screen |
 | `Command-,` | Settings |
@@ -107,7 +118,7 @@ cd CP24-Kiosk-NativeARM
 The script compiles an optimized **arm64** executable targeting macOS 13, assembles the app with the included icon and metadata, applies an ad-hoc signature, and produces:
 
 - `build/CP24 HLS Kiosk.app`
-- `releases/CP24-HLS-Kiosk-v2.20-Apple-Silicon.zip`
+- `releases/CP24-HLS-Kiosk-v2.21-Apple-Silicon.zip`
 
 No earlier News TV Kiosk ZIP is required to build this repository. No third-party package installation or API key is required. Playback still requires the broadcaster’s license service.
 
@@ -117,7 +128,16 @@ The native CP24 player was tested on an Apple Silicon Mac on **October 16, 2026*
 
 - Broadcaster commercials can still appear. This app does not promise ad removal or bypass playback authorization.
 - Stream URLs, certificates, licensing requirements, and geographic availability can change.
-- The original v2.20 app retains an inherited “Universal Mac Build” description in its Safeguards window. That label is inaccurate for this package: the binary and build script are **Apple Silicon only**.
+- Fixed in v2.21: the original v2.20 app retains an inherited “Universal Mac Build” description in its Safeguards window. That label is inaccurate for this package: the binary and build script are **Apple Silicon only**.
 - Historical release notes describe earlier versions and may mention channels or architectures not included in this release.
 
 This project is not affiliated with or endorsed by CP24, Bell Media, CityNews, or their owners. Channel names and stream content belong to their respective owners.
+
+## Rotation tests
+
+```sh
+xcrun swiftc Sources/CP24HLSKiosk/Channel.swift Sources/CP24HLSKiosk/ChannelRotation.swift Tests/ChannelRotationTests.swift -o /tmp/cp24-rotation-tests
+/tmp/cp24-rotation-tests
+```
+
+Covers all 192 combinations of current channel, included channels, and cooldown channels, plus saved preferences and rotation order.

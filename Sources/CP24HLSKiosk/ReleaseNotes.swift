@@ -11,6 +11,13 @@ enum ReleaseNotes {
     static let archivePageSize = 20
 
     static let all: [ReleaseNote] = [
+        ReleaseNote(version: "v2.21", date: "2026-10-16", changes: [
+            "Added Global News Toronto native HLS playback and keyboard shortcut 3.",
+            "Added saved per-channel rotation preferences in Settings.",
+            "Automatic rotation and fallback skip unchecked channels and channels cooling down.",
+            "Uncheck all channels to disable automatic switching; manual selection remains available.",
+            "Corrected the Apple Silicon architecture description."
+        ]),
         ReleaseNote(version: "v2.20 HLS", date: "2026-10-16", changes: [
             "Native CP24 HLS playback on Apple Silicon with FairPlay license requests.",
             "Preserved CP24 and CityNews, dashboard, and kiosk safeguards.",

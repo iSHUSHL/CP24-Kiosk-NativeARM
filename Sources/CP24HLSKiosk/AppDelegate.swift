@@ -49,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var archiveStackView: NSStackView?
     private var archiveLoadMoreButton: NSButton?
     private var archiveVisibleCount = ReleaseNotes.archivePageSize
+    private var rotationChannelButtons: [Channel: NSButton] = [:]
     private var rotationPopupButton: NSPopUpButton?
     private var launchAtLoginButton: NSButton?
     private var disableSleepButton: NSButton?
@@ -105,12 +106,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.applicationIconImage = NSImage(named: "NewsTVKioskIcon")
         StreamHealthLog.append("App launched")
         CrashWatchdog.shared.start()
-        playerViewController.fallbackRequested = { [weak self] targetChannel in
+        playerViewController.fallbackRequested = { [weak self] _ in
             guard let self else { return }
             let failedChannel = self.currentChannel
-            StreamHealthLog.append("Fallback requested: switching from \(failedChannel.title) to \(targetChannel.title)")
+            StreamHealthLog.append("Fallback requested after \(failedChannel.title) failed")
             self.markChannelUnavailable(failedChannel)
-            self.select(targetChannel, userInitiated: false)
+            if let target = self.nextAutomaticChannel() {
+                self.select(target, userInitiated: false)
+            } else {
+                StreamHealthLog.append("No enabled fallback channel available; staying on current channel")
+            }
         }
         playerViewController.healthStatusChanged = { [weak self] isHealthy, reason in
             self?.handlePlayerHealth(isHealthy: isHealthy, reason: reason)
@@ -186,16 +191,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         select(.citynews, userInitiated: true)
     }
 
+    @objc private func selectGlobalToronto() {
+        select(.globalToronto, userInitiated: true)
+    }
+
     @objc private func rotateChannel() {
-        guard isNetworkOnline else {
+        guard isNetworkOnline, !isPlayerStoppedByClose else {
             StreamHealthLog.append("Auto-switch skipped: network offline")
             refreshDashboard()
             return
         }
 
-        let target = currentChannel.next
-        if isChannelTemporarilyUnavailable(target) {
-            StreamHealthLog.append("Auto-switch skipped: \(target.title) cooling down after failures")
+        guard let target = nextAutomaticChannel() else {
             refreshDashboard()
             return
         }
@@ -658,7 +665,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ),
         (
             "Fallback Channel Switching",
-            "After repeated recovery failures on one channel, the app switches to the other channel automatically so the kiosk keeps showing live news."
+            "After repeated recovery failures on one channel, the app switches to another enabled, available channel automatically so the kiosk keeps showing live news."
         ),
         (
             "Last Known Good Channel",
@@ -718,19 +725,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ),
         (
             "Auto Channel Rotation",
-            "Channels can switch automatically on a saved interval from 1 minute to 2 hours."
+            "Choose which channels participate in automatic rotation and fallback, with a saved interval from 1 minute to 2 hours. Uncheck all to stop automatic switching."
         ),
         (
             "Manual Recovery Shortcut",
-            "Command-R reloads the current stream, while number keys 1 and 2 switch directly to CP24 and CityNews."
+            "Command-R reloads the current stream, while number keys 1, 2, and 3 switch directly to CP24, CityNews, and Global News Toronto."
         ),
         (
             "Now Playing Overlay",
             "A small on-screen Now Playing overlay appears on channel load or switch and disappears after a few seconds."
         ),
         (
-            "Universal Mac Build",
-            "The packaged app is built as a universal binary for both Intel and Apple silicon Macs."
+            "Apple Silicon Build",
+            "The packaged app is built natively for Apple Silicon Macs (arm64)."
         )
     ]
 
@@ -1356,7 +1363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 640),
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 720),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -1440,6 +1447,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         contentView.addSubview(popup)
         rotationPopupButton = popup
+
+        let rotationLabel = NSTextField(labelWithString: "Include in automatic rotation and fallback:")
+        rotationLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        let channelRow = NSStackView()
+        channelRow.orientation = .horizontal
+        channelRow.spacing = 18
+        for (index, channel) in Channel.allCases.enumerated() {
+            let button = NSButton(checkboxWithTitle: channel.title, target: self, action: #selector(rotationChannelChanged(_:)))
+            button.tag = index
+            rotationChannelButtons[channel] = button
+            channelRow.addArrangedSubview(button)
+        }
+        let rotationHint = NSTextField(labelWithString: "Uncheck all to stop automatic switching. Manual channel selection stays available.")
+        rotationHint.font = .systemFont(ofSize: 11)
+        rotationHint.textColor = .secondaryLabelColor
+        let rotationSelection = NSStackView(views: [rotationLabel, channelRow, rotationHint])
+        rotationSelection.orientation = .vertical
+        rotationSelection.alignment = .leading
+        rotationSelection.spacing = 8
+        rotationSelection.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(rotationSelection)
 
         let launchButton = NSButton(checkboxWithTitle: "Launch CP24 HLS Kiosk at login", target: self, action: #selector(launchAtLoginChanged(_:)))
         launchButton.translatesAutoresizingMaskIntoConstraints = false
@@ -1546,7 +1574,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             popup.leadingAnchor.constraint(equalTo: autoSwitchLabel.trailingAnchor, constant: 16),
             popup.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -34),
 
-            launchButton.topAnchor.constraint(equalTo: autoSwitchLabel.bottomAnchor, constant: 34),
+            rotationSelection.topAnchor.constraint(equalTo: autoSwitchLabel.bottomAnchor, constant: 20),
+            rotationSelection.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 34),
+            rotationSelection.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -34),
+            launchButton.topAnchor.constraint(equalTo: rotationSelection.bottomAnchor, constant: 22),
             launchButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 34),
             launchButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -34),
 
@@ -1581,6 +1612,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.center()
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func rotationChannelChanged(_ sender: NSButton) {
+        let selected = Channel.allCases.filter { rotationChannelButtons[$0]?.state == .on }
+        UserDefaults.standard.set(selected.map(\.rawValue), forKey: ChannelRotation.preferenceKey)
+        StreamHealthLog.append("Rotation channels: " + (selected.isEmpty ? "off" : selected.map(\.title).joined(separator: ", ")))
+        restartRotationTimer()
+        refreshDashboard()
     }
 
     @objc private func rotationPopupChanged(_ sender: NSPopUpButton) {
@@ -1843,6 +1882,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         channelsMenu.addItem(citynews)
         channelMenuItems[.citynews] = citynews
 
+        let global = NSMenuItem(title: "Global News Toronto", action: #selector(selectGlobalToronto), keyEquivalent: "3")
+        global.keyEquivalentModifierMask = []
+        global.target = self
+        channelsMenu.addItem(global)
+        channelMenuItems[.globalToronto] = global
+
         channelsMenu.addItem(.separator())
         let recover = NSMenuItem(title: "Reload Stream", action: #selector(recoverStream), keyEquivalent: "r")
         recover.keyEquivalentModifierMask = [.command]
@@ -1896,6 +1941,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             case "2":
                 self.select(.citynews, userInitiated: true)
                 return nil
+            case "3":
+                self.select(.globalToronto, userInitiated: true)
+                return nil
             case "\u{1B}":
                 self.shrinkPlayerWindow()
                 return nil
@@ -1907,6 +1955,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func restartRotationTimer() {
         rotationTimer?.invalidate()
+        rotationTimer = nil
+        guard !ChannelRotation.included(in: .standard).isEmpty else { return }
         let interval = TimeInterval(selectedRotationSeconds())
         rotationTimer = Timer.scheduledTimer(timeInterval: interval, target: self, selector: #selector(rotateChannel), userInfo: nil, repeats: true)
         rotationTimer?.tolerance = min(60, interval * 0.1)
@@ -1931,7 +1981,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return Self.defaultRotationSeconds
     }
 
+    private func nextAutomaticChannel() -> Channel? {
+        clearExpiredChannelCooldowns()
+        return ChannelRotation.next(after: currentChannel,
+            included: ChannelRotation.included(in: .standard),
+            unavailable: Set(failedChannelCooldowns.keys))
+    }
+
     private func rotationDashboardText() -> String {
+        let included = ChannelRotation.included(in: .standard)
+        if included.isEmpty { return "Off" }
+        if included.count == 1 { return "One channel" }
+
         let seconds = selectedRotationSeconds()
         if let option = Self.rotationOptions.first(where: { $0.seconds == seconds }) {
             return option.title
@@ -1940,6 +2001,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func updateSettingsControls() {
+        let included = ChannelRotation.included(in: .standard)
+        for (channel, button) in rotationChannelButtons {
+            button.state = included.contains(channel) ? .on : .off
+        }
         let currentSeconds = selectedRotationSeconds()
         if let popup = rotationPopupButton {
             for item in popup.itemArray {

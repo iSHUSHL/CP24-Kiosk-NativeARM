@@ -1,2 +1,3 @@
 417c458bdf5ce86f23862c50a35636abb3d1c7d68d6acba29f9d8d9469d3868d  releases/CP24-HLS-Kiosk-v2.20-Apple-Silicon.zip
 208f035312fdda296dd3a9129e07b78bcbf428539120bdd946055156687417a7  CP24-HLS-Kiosk-Notarized.dmg
+d1b26ea775e413a44349cc14e6b51b06e195e1d4996ff59167b76184c8ecedaa  releases/CP24-HLS-Kiosk-v2.21-Apple-Silicon.zip
