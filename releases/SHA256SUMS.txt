@@ -1,0 +1,1 @@
+417c458bdf5ce86f23862c50a35636abb3d1c7d68d6acba29f9d8d9469d3868d  releases/CP24-HLS-Kiosk-v2.20-Apple-Silicon.zip
