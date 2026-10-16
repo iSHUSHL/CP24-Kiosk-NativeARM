@@ -2,7 +2,7 @@
 
 A native macOS live-news kiosk with **CP24, CityNews, and Global News Toronto**, built for Apple Silicon. Version **2.21** plays CP24 through AVPlayer using HLS and the broadcaster’s FairPlay certificate/license exchange, instead of the embedded Jasper web player.
 
-**[Download notarized DMG for Apple Silicon](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.20/CP24-HLS-Kiosk-Notarized.dmg)** · [All releases](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases)
+**[Download notarized v2.21 DMG for Apple Silicon](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.21/CP24-HLS-Kiosk-Notarized-2.dmg)** · [All releases](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases)
 
 
 ### New in v2.21
@@ -11,7 +11,7 @@ A native macOS live-news kiosk with **CP24, CityNews, and Global News Toronto**,
 
 Adds Global News Toronto (key `3`) and saved per-channel rotation checkboxes in **Settings → Include in automatic rotation and fallback**. All three channels are included by default. Select one to stay on that channel once rotation reaches it; uncheck all to stop automatic switching. Manual switching remains available for every channel. Recovery fallback respects the same selection and skips channels in cooldown.
 
-**v2.21 is ad-hoc signed and is not notarized yet.** The notarized DMG above remains v2.20 and does not include Global or the new rotation settings. To install v2.21, unzip it and move the app to Applications; quit the previous app before replacing it.
+**v2.21 is now available as a notarized DMG**, including Global and rotation preferences. Quit the previous app before replacing it. The ZIP remains an ad-hoc-signed alternative; it is not notarized.
 
 ## Requirements and installation
 
@@ -19,12 +19,12 @@ Adds Global News Toronto (key `3`) and saved per-channel rotation checkboxes in 
 - macOS 13 or later and an internet connection.
 - CP24 playback depends on the broadcaster continuing to authorize the native FairPlay request and making the stream available in your location.
 
-1. Download and open **CP24-HLS-Kiosk-Notarized.dmg**.
+1. Download and open **CP24-HLS-Kiosk-Notarized-2.dmg**.
 2. Drag **CP24 HLS Kiosk.app** onto the **Applications** shortcut in the disk image.
 3. Open the app. It starts with CP24 in full screen.
 4. Press **Esc** to leave full screen, and use **Settings** to configure rotation and safeguards.
 
-**Recommended download: the notarized DMG.** Its stapled notarization ticket was validated, and macOS Gatekeeper accepted the included v2.20 app as **Notarized Developer ID** on October 16, 2026.
+**Recommended download: the notarized DMG.** Its stapled notarization ticket was validated, and macOS Gatekeeper accepted the included v2.21 app as **Notarized Developer ID** on October 16, 2026.
 
 The original ZIP remains available as an alternative; that ZIP and local builds are ad-hoc signed and **not notarized**.
 
