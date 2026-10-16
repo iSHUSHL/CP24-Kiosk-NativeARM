@@ -2,7 +2,7 @@
 
 A native macOS live-news kiosk with **CP24 and CityNews**, built for Apple Silicon. Version **2.20** plays CP24 through AVPlayer using HLS and the broadcaster’s FairPlay certificate/license exchange, instead of the embedded Jasper web player.
 
-[Download v2.20 for Apple Silicon](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.20/CP24-HLS-Kiosk-v2.20-Apple-Silicon.zip) · [All releases](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases)
+**[Download notarized DMG for Apple Silicon](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.20/CP24-HLS-Kiosk-Notarized.dmg)** · [All releases](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases)
 
 ## Requirements and installation
 
@@ -10,12 +10,14 @@ A native macOS live-news kiosk with **CP24 and CityNews**, built for Apple Silic
 - macOS 13 or later and an internet connection.
 - CP24 playback depends on the broadcaster continuing to authorize the native FairPlay request and making the stream available in your location.
 
-1. Download and unzip the release.
-2. Move **CP24 HLS Kiosk.app** into **Applications**.
+1. Download and open **CP24-HLS-Kiosk-Notarized.dmg**.
+2. Drag **CP24 HLS Kiosk.app** onto the **Applications** shortcut in the disk image.
 3. Open the app. It starts with CP24 in full screen.
 4. Press **Esc** to leave full screen, and use **Settings** to configure rotation and safeguards.
 
-The app is locally ad-hoc signed, not Apple-notarized. macOS may require approval in **System Settings → Privacy & Security → Open Anyway** after the first launch attempt. Only approve a copy you trust; do not disable Gatekeeper globally.
+**Recommended download: the notarized DMG.** Its stapled notarization ticket was validated, and macOS Gatekeeper accepted the included v2.20 app as **Notarized Developer ID** on October 16, 2026.
+
+The original ZIP remains available as an alternative; that ZIP and local builds are ad-hoc signed and **not notarized**.
 
 This is a separate app from News TV Kiosk. It uses its own bundle identifier, preferences, health logs, and watchdog files. Installing it does not replace your previous app. Quit the previous kiosk before running this one to avoid simultaneous playback.
 
