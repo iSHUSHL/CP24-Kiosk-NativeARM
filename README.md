@@ -41,7 +41,7 @@ Adds Global News Toronto (key `3`) and saved per-channel rotation checkboxes in 
 - CP24 playback depends on the broadcaster continuing to authorize the native FairPlay request and making the stream available in your location.
 
 1. Download and open **CP24-HLS-Kiosk-Notarized.dmg**.
-2. Quit the older kiosk app, then drag **CP24 HLS Kiosk 2.app** onto the **Applications** shortcut in the disk image.
+2. Quit the older kiosk app, then drag **CP24 HLS Kiosk.app** onto the **Applications** shortcut in the disk image.
 3. Open the app. It starts with CP24 in full screen.
 4. Press **Esc** to leave full screen, and use **Settings** to configure rotation and safeguards.
 
