@@ -2,7 +2,7 @@
 
 A native macOS live-news kiosk with **CP24, CityNews, and Global News Toronto**, built for Apple Silicon. Version **2.22** plays CP24 through AVPlayer using HLS and the broadcaster’s FairPlay certificate/license exchange, instead of the embedded Jasper web player.
 
-**[Download notarized v2.22 DMG for Apple Silicon](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.22/CP24-HLS-Kiosk-2-Notarized.dmg)** · [All releases](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases)
+**[Download notarized v2.22 DMG for Apple Silicon](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.22/CP24-HLS-Kiosk-Notarized.dmg)** · [All releases](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases)
 
 
 ### New in v2.22 — adaptive streaming
@@ -40,7 +40,7 @@ Adds Global News Toronto (key `3`) and saved per-channel rotation checkboxes in 
 - macOS 13 or later and an internet connection.
 - CP24 playback depends on the broadcaster continuing to authorize the native FairPlay request and making the stream available in your location.
 
-1. Download and open **CP24-HLS-Kiosk-2-Notarized.dmg**.
+1. Download and open **CP24-HLS-Kiosk-Notarized.dmg**.
 2. Quit the older kiosk app, then drag **CP24 HLS Kiosk 2.app** onto the **Applications** shortcut in the disk image.
 3. Open the app. It starts with CP24 in full screen.
 4. Press **Esc** to leave full screen, and use **Settings** to configure rotation and safeguards.
