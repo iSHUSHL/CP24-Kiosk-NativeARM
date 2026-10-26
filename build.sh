@@ -7,6 +7,6 @@ xcrun swiftc -O -parse-as-library -sdk "$(xcrun --sdk macosx --show-sdk-path)" -
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/NewsTVKioskIcon.icns "$APP/Contents/Resources/NewsTVKioskIcon.icns"
 codesign --force --deep --sign - "$APP"
-COPYFILE_DISABLE=1 ditto -c -k --norsrc --keepParent "$APP" releases/CP24-HLS-Kiosk-v2.21-Apple-Silicon.zip
+COPYFILE_DISABLE=1 ditto -c -k --norsrc --keepParent "$APP" releases/CP24-HLS-Kiosk-v2.22-Apple-Silicon.zip
 codesign --verify --deep --strict "$APP"
-echo "Built releases/CP24-HLS-Kiosk-v2.21-Apple-Silicon.zip"
+echo "Built releases/CP24-HLS-Kiosk-v2.22-Apple-Silicon.zip"

@@ -1,9 +1,30 @@
 # CP24 HLS Kiosk — Native Apple Silicon
 
-A native macOS live-news kiosk with **CP24, CityNews, and Global News Toronto**, built for Apple Silicon. Version **2.21** plays CP24 through AVPlayer using HLS and the broadcaster’s FairPlay certificate/license exchange, instead of the embedded Jasper web player.
+A native macOS live-news kiosk with **CP24, CityNews, and Global News Toronto**, built for Apple Silicon. Version **2.22** plays CP24 through AVPlayer using HLS and the broadcaster’s FairPlay certificate/license exchange, instead of the embedded Jasper web player.
 
 **[Download notarized v2.21 DMG for Apple Silicon](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.21/CP24-HLS-Kiosk-Notarized-2.dmg)** · [All releases](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases)
 
+
+### New in v2.22 — adaptive streaming
+
+[Download v2.22 ZIP — adaptive streaming](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.22/CP24-HLS-Kiosk-v2.22-Apple-Silicon.zip)
+
+CP24, CityNews, and Global now have additional connection-aware quality limits on top of native HLS adaptation. No setup is required:
+
+- Starts with a conservative 2.5 Mbps preferred cap; AVPlayer picks a rendition offered by each channel.
+- Checks playback, buffered media, and fresh transfer measurements every five seconds.
+- Lowers the preferred cap on stalls, sustained buffering, or insufficient throughput with a low buffer. Reductions are spaced at least 20 seconds apart.
+- Increases one step only after at least two minutes of stable playback, sufficient buffered media, and fresh bandwidth evidence with 35% headroom.
+- Uses preferred caps from 0.8 to 8 Mbps and a 30-second preferred buffer at the lowest levels (20 seconds otherwise).
+- Retains each channel's cap across rotation and retries during the app session; a new launch starts conservatively again.
+- Logs quality changes, shows a buffering message, and preserves retry backoff until playback has been stable for a minute.
+- Continues bounded retries when no enabled fallback channel is available.
+
+These are AVPlayer preferences, not guaranteed bitrates or buffer sizes. The stream must offer a suitable lower-bitrate rendition. A slower connection than the lowest rendition, broadcaster faults, or an outage can still interrupt playback. More buffering can increase live delay. This does not remove FairPlay output restrictions during screen capture.
+
+**v2.22 is ad-hoc signed and not notarized.** The recommended notarized DMG above remains **v2.21** and does not include adaptive streaming. Local builds also remain ad-hoc signed.
+
+Implementation references: [Apple bitrate preferences](https://developer.apple.com/documentation/avfoundation/avplayeritem/preferredpeakbitrate) and [buffer preferences](https://developer.apple.com/documentation/avfoundation/avplayeritem/preferredforwardbufferduration).
 
 ### New in v2.21
 
@@ -118,7 +139,7 @@ cd CP24-Kiosk-NativeARM
 The script compiles an optimized **arm64** executable targeting macOS 13, assembles the app with the included icon and metadata, applies an ad-hoc signature, and produces:
 
 - `build/CP24 HLS Kiosk.app`
-- `releases/CP24-HLS-Kiosk-v2.21-Apple-Silicon.zip`
+- `releases/CP24-HLS-Kiosk-v2.22-Apple-Silicon.zip`
 
 No earlier News TV Kiosk ZIP is required to build this repository. No third-party package installation or API key is required. Playback still requires the broadcaster’s license service.
 
@@ -141,3 +162,16 @@ xcrun swiftc Sources/CP24HLSKiosk/Channel.swift Sources/CP24HLSKiosk/ChannelRota
 ```
 
 Covers all 192 combinations of current channel, included channels, and cooldown channels, plus saved preferences and rotation order.
+
+## Adaptive quality tests
+
+```sh
+xcrun swiftc Sources/CP24HLSKiosk/Channel.swift Sources/CP24HLSKiosk/AdaptiveQuality.swift Tests/AdaptiveQualityTests.swift -o /tmp/cp24-quality-tests
+/tmp/cp24-quality-tests
+```
+
+Tests cover quality reductions, anti-flapping delays, slow upgrades, buffer and throughput requirements, invalid measurements, and independent channel state. Network conditions are simulated in the policy tests; they are not a long-duration network-throttling or endurance test.
+
+### v2.22 live validation (October 26, 2026)
+
+The updated PlayerViewController was exercised on all three feeds for approximately 25 seconds each. The repeat run produced 25 CP24, 25 CityNews, and 24 Global decoded-video samples with no final item errors. Injected stall notifications lowered preferred caps without replacing the current item; CP24's reduced cap survived rotation, and stopping removed the player item. An initial run encountered a CityNews playback failure before the simulated stall; the repeat run was clean. These short checks do not establish long-term reliability or eliminate upstream failures.

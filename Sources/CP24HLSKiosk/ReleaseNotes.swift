@@ -11,6 +11,12 @@ enum ReleaseNotes {
     static let archivePageSize = 20
 
     static let all: [ReleaseNote] = [
+        ReleaseNote(version: "v2.22", date: "2026-10-26", changes: [
+            "Added connection-aware quality limits for CP24, CityNews, and Global.",
+            "Lowers quality during buffering and raises it cautiously after sustained stable playback.",
+            "Remembers each channel's quality limit during rotation and uses extra buffering at low quality.",
+            "Preserves recovery backoff through brief playback resumptions and retries when no fallback is enabled."
+        ]),
         ReleaseNote(version: "v2.21", date: "2026-10-16", changes: [
             "Added Global News Toronto native HLS playback and keyboard shortcut 3.",
             "Added saved per-channel rotation preferences in Settings.",

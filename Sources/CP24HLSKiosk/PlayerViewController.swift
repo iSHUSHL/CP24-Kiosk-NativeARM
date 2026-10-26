@@ -15,6 +15,15 @@ final class PlayerViewController: NSViewController {
     private var player = AVPlayer()
     private let fairPlay = FairPlayResourceLoader()
     private var currentChannel: Channel = .cp24
+    private var qualityTimer: Timer?
+    private var channelQuality: [Channel: AdaptiveQuality] = [:]
+    private var qualityLastTime: Double?
+    private var bufferingSince: Date?
+    private var stablePlaybackSince: Date?
+    private var transferBytes: Int64 = 0
+    private var transferDuration: TimeInterval = 0
+    private var lastThroughput: Double?
+    private var throughputAt = Date.distantPast
     private var monitorTimer: Timer?
     private var statusTimer: Timer?
     private var nowPlayingTimer: Timer?
@@ -122,22 +131,25 @@ final class PlayerViewController: NSViewController {
     }
 
     func recoverNow(reason: String) {
-        guard !isStoppedByUser else { return }
+        guard !isStoppedByUser, !isWaitingForNetwork else { return }
         let now = Date()
         guard now.timeIntervalSince(lastRecoveryAt) >= recoveryDelay else { return }
         recordRecoveryAttempt(at: now)
         markUnhealthy(reason)
         StreamHealthLog.append("Recovery attempt \(recoveryAttemptsInWindow) for \(currentChannel.title): \(reason)")
 
-        if recoveryAttemptsInWindow >= 3 {
-            StreamHealthLog.append("\(currentChannel.title) recovery limit reached; switching to \(currentChannel.next.title)")
-            showStatus("\(currentChannel.title) unavailable, switching")
-            fallbackRequested?(currentChannel.next)
-            return
-        }
-
         lastRecoveryAt = now
         recoveryDelay = min(recoveryDelay * 1.6, 60)
+        if recoveryAttemptsInWindow >= 3 {
+            StreamHealthLog.append("\(currentChannel.title) recovery limit reached; requesting enabled fallback")
+            showStatus("\(currentChannel.title) unavailable, switching")
+            let failedItem = player.currentItem
+            fallbackRequested?(currentChannel.next)
+            if player.currentItem !== failedItem { return }
+            // No enabled fallback: keep retrying this channel with bounded backoff.
+
+        }
+
         showStatus("Recovering \(currentChannel.title)")
 
         switch currentChannel.playback {
@@ -155,6 +167,8 @@ final class PlayerViewController: NSViewController {
         isStoppedByUser = true
         monitorTimer?.invalidate()
         monitorTimer = nil
+        qualityTimer?.invalidate()
+        qualityTimer = nil
         statusTimer?.invalidate()
         statusTimer = nil
         nowPlayingTimer?.invalidate()
@@ -169,6 +183,8 @@ final class PlayerViewController: NSViewController {
 
     func showNetworkWaiting(_ waiting: Bool) {
         isWaitingForNetwork = waiting
+        channelQuality[currentChannel]?.interruptStability()
+        stablePlaybackSince = nil
         statusTimer?.invalidate()
         statusTimer = nil
         if waiting {
@@ -196,7 +212,17 @@ final class PlayerViewController: NSViewController {
         }
         loadedAt = Date()
         let item = AVPlayerItem(asset: asset)
-        item.preferredForwardBufferDuration = 20
+        var quality = channelQuality[currentChannel] ?? AdaptiveQuality()
+        quality.interruptStability()
+        channelQuality[currentChannel] = quality
+        qualityLastTime = nil
+        bufferingSince = nil
+        stablePlaybackSince = nil
+        transferBytes = 0
+        transferDuration = 0
+        lastThroughput = nil
+        throughputAt = .distantPast
+        applyQuality(to: item, reason: "Stream start")
         item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
 
         NotificationCenter.default.removeObserver(self)
@@ -225,10 +251,8 @@ final class PlayerViewController: NSViewController {
                 switch item.status {
                 case .readyToPlay:
                     self.disableNativeCaptions(on: item)
-                    self.recoveryDelay = 6
                     self.player.play()
                     StreamHealthLog.append("Native stream ready for \(self.currentChannel.title)")
-                    self.markHealthy("Native stream ready")
                     self.showNowPlaying(self.currentChannel)
                     self.showStatus(self.currentChannel.title)
                 case .failed:
@@ -242,11 +266,8 @@ final class PlayerViewController: NSViewController {
 
         timeControlObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, !self.isStoppedByUser, self.player.currentItem === item else { return }
                 if player.timeControlStatus == .playing {
-                    self.recoveryDelay = 6
-                    self.resetRecoveryWindow()
-                    self.markHealthy("Playback active")
                     StreamHealthLog.append("Playback active for \(self.currentChannel.title)")
                 }
             }
@@ -270,13 +291,22 @@ final class PlayerViewController: NSViewController {
     }
 
     @objc private func nativeItemStalled(_ notification: Notification) {
+        guard let item = notification.object as? AVPlayerItem, player.currentItem === item,
+              !isStoppedByUser, !isWaitingForNetwork,
+              !player.isOutputObscuredDueToInsufficientExternalProtection else { return }
+        stablePlaybackSince = nil
+        if channelQuality[currentChannel, default: AdaptiveQuality()].reduce(at: Date()) {
+            applyQuality(to: item, reason: "Playback stalled")
+        }
         StreamHealthLog.append("Native stream stalled for \(currentChannel.title)")
         // Let AVPlayer refill its buffer; the health monitor retries sustained stalls.
         player.play()
     }
 
     @objc private func nativeItemFailed(_ notification: Notification) {
-        StreamHealthLog.append("Native stream playback failure for \(currentChannel.title)")
+        guard let item = notification.object as? AVPlayerItem, player.currentItem === item else { return }
+        let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+        StreamHealthLog.append("Native stream playback failure for \(currentChannel.title): \(error?.localizedDescription ?? item.error?.localizedDescription ?? "unknown error")")
         recoverNow(reason: "Stream failed")
     }
 
@@ -288,6 +318,11 @@ final class PlayerViewController: NSViewController {
             }
         }
         monitorTimer?.tolerance = 3
+        qualityTimer?.invalidate()
+        qualityTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkAdaptiveQuality() }
+        }
+        qualityTimer?.tolerance = 1
     }
 
     private func checkNativePlaybackHealth() {
@@ -295,6 +330,12 @@ final class PlayerViewController: NSViewController {
         guard let item = player.currentItem else {
             StreamHealthLog.append("Health check: no stream loaded for \(currentChannel.title)")
             recoverNow(reason: "No stream loaded")
+            return
+        }
+
+        if player.isOutputObscuredDueToInsufficientExternalProtection {
+            // Output protection is not a bandwidth failure; don't reload or lower quality.
+            showStatus("Protected video unavailable during screen capture")
             return
         }
 
@@ -313,9 +354,14 @@ final class PlayerViewController: NSViewController {
         if seconds.isFinite {
             if let previous = lastPlayerTime, seconds > previous + 0.25 {
                 lastProgressAt = Date()
-                recoveryDelay = 6
-                resetRecoveryWindow()
-                markHealthy("Native playback progressing")
+                if nativeVideoIsVisible(on: item) {
+                    if stablePlaybackSince == nil { stablePlaybackSince = Date() }
+                    if Date().timeIntervalSince(stablePlaybackSince!) >= 60 {
+                        recoveryDelay = 6
+                        resetRecoveryWindow()
+                    }
+                    markHealthy("Native playback progressing")
+                }
             }
 
             if lastPlayerTime == nil {
@@ -346,6 +392,64 @@ final class PlayerViewController: NSViewController {
         if Date().timeIntervalSince(lastProgressAt) > 75 {
             StreamHealthLog.append("Health check: no playback progress for \(currentChannel.title)")
             recoverNow(reason: "Playback stopped")
+        }
+    }
+
+    private func applyQuality(to item: AVPlayerItem, reason: String) {
+        let quality = channelQuality[currentChannel] ?? AdaptiveQuality()
+        item.preferredPeakBitRate = quality.peakBitRate
+        item.preferredForwardBufferDuration = quality.forwardBuffer
+        StreamHealthLog.append("Adaptive quality for \(currentChannel.title): \(quality.peakBitRate / 1_000_000) Mbps preferred cap, \(Int(quality.forwardBuffer))s buffer — \(reason)")
+    }
+
+    private func checkAdaptiveQuality() {
+        guard !isStoppedByUser, !isWaitingForNetwork,
+              let item = player.currentItem, item.status == .readyToPlay else { return }
+        guard !player.isOutputObscuredDueToInsufficientExternalProtection else {
+            channelQuality[currentChannel]?.interruptStability()
+            stablePlaybackSince = nil
+            return
+        }
+        let now = Date()
+        let seconds = player.currentTime().seconds
+        guard seconds.isFinite else { return }
+        let progressing = qualityLastTime.map { seconds > $0 + 0.25 } ?? false
+        qualityLastTime = seconds
+        let ahead = item.loadedTimeRanges.map(\.timeRangeValue).filter {
+            let start = $0.start.seconds
+            return start <= seconds + 0.1 && CMTimeRangeGetEnd($0).seconds >= seconds
+        }.map { CMTimeRangeGetEnd($0).seconds - seconds }.max() ?? 0
+
+        // Use new transferred bytes/time only; repeatedly reading a stale log must
+        // not look like fresh bandwidth evidence for a quality increase.
+        if let events = item.accessLog()?.events {
+            let bytes = events.reduce(Int64(0)) { $0 + max(0, $1.numberOfBytesTransferred) }
+            let duration = events.reduce(0.0) { $0 + max(0, $1.transferDuration) }
+            if bytes > transferBytes, duration > transferDuration {
+                lastThroughput = Double(bytes - transferBytes) * 8 / (duration - transferDuration)
+                throughputAt = now
+            }
+            transferBytes = bytes
+            transferDuration = duration
+        }
+        let buffering = !progressing && (item.isPlaybackBufferEmpty || player.timeControlStatus == .waitingToPlayAtSpecifiedRate)
+        if buffering {
+            stablePlaybackSince = nil
+            if bufferingSince == nil { bufferingSince = now }
+        } else {
+            bufferingSince = nil
+            if !progressing { stablePlaybackSince = nil }
+        }
+        let sustainedBuffering = bufferingSince.map { now.timeIntervalSince($0) >= 5 } ?? false
+        let freshThroughput = now.timeIntervalSince(throughputAt) <= 15 ? lastThroughput : nil
+        if channelQuality[currentChannel, default: AdaptiveQuality()].sample(
+            at: now, progressing: progressing, buffering: sustainedBuffering,
+            bufferSeconds: ahead, throughput: freshThroughput) {
+            applyQuality(to: item, reason: sustainedBuffering ? "Buffering" : "Connection and buffer assessment")
+        }
+        if sustainedBuffering {
+            markUnhealthy("Buffering")
+            showStatus("Buffering \(currentChannel.title) — adapting quality")
         }
     }
 
