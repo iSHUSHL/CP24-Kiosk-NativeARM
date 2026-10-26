@@ -2,7 +2,7 @@
 
 A native macOS live-news kiosk with **CP24, CityNews, and Global News Toronto**, built for Apple Silicon. Version **2.23** plays CP24 through AVPlayer using HLS and the broadcaster’s FairPlay certificate/license exchange, instead of the embedded Jasper web player.
 
-**[Download notarized v2.22 DMG for Apple Silicon](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.22/CP24-HLS-Kiosk-Notarized.dmg)** · [All releases](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases)
+**[Download notarized v2.23 DMG for Apple Silicon](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.23/CP24-HLS-Kiosk-Notarized.dmg)** · [All releases](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases)
 
 
 ### New in v2.23 — diagnostics, startup preferences, and update checks
@@ -16,7 +16,7 @@ A native macOS live-news kiosk with **CP24, CityNews, and Global News Toronto**,
 
 **All three channel-rotation checkboxes remain available.** Startup choices and update checks are independent of rotation.
 
-**v2.23 needs fresh notarization.** This ZIP and local builds are ad-hoc signed; the recommended notarized DMG above remains v2.22.
+**v2.23 is now available as a notarized DMG**, including diagnostics, startup preferences, and update checks. This is the recommended download. The ZIP and local builds remain ad-hoc signed and are not notarized.
 
 ### New in v2.22 — adaptive streaming
 
@@ -35,7 +35,7 @@ CP24, CityNews, and Global now have additional connection-aware quality limits o
 
 These are AVPlayer preferences, not guaranteed bitrates or buffer sizes. The stream must offer a suitable lower-bitrate rendition. A slower connection than the lowest rendition, broadcaster faults, or an outage can still interrupt playback. More buffering can increase live delay. This does not remove FairPlay output restrictions during screen capture.
 
-**v2.22 is now available as a notarized DMG**, including adaptive streaming. This is the recommended download. The ZIP and local builds remain ad-hoc signed and are not notarized.
+**v2.22 is now available as a notarized DMG**, including adaptive streaming. The newer v2.23 DMG is recommended. The ZIP and local builds remain ad-hoc signed and are not notarized.
 
 Implementation references: [Apple bitrate preferences](https://developer.apple.com/documentation/avfoundation/avplayeritem/preferredpeakbitrate) and [buffer preferences](https://developer.apple.com/documentation/avfoundation/avplayeritem/preferredforwardbufferduration).
 
@@ -58,7 +58,7 @@ Adds Global News Toronto (key `3`) and saved per-channel rotation checkboxes in 
 3. Open the app. v2.23 starts full screen with your chosen startup channel (or last watched); a first launch defaults to CP24.
 4. Press **Esc** to leave full screen, and use **Settings** to configure rotation and safeguards.
 
-**Recommended download: the notarized DMG.** Its stapled notarization ticket was validated, and macOS Gatekeeper accepted the included v2.22 app as **Notarized Developer ID** on October 26, 2026.
+**Recommended download: the notarized DMG.** Its stapled notarization ticket was validated, and macOS Gatekeeper accepted the included v2.23 app as **Notarized Developer ID** on October 26, 2026.
 
 The original ZIP remains available as an alternative; that ZIP and local builds are ad-hoc signed and **not notarized**.
 
