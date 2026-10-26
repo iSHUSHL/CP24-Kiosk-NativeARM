@@ -1,9 +1,22 @@
 # CP24 HLS Kiosk — Native Apple Silicon
 
-A native macOS live-news kiosk with **CP24, CityNews, and Global News Toronto**, built for Apple Silicon. Version **2.22** plays CP24 through AVPlayer using HLS and the broadcaster’s FairPlay certificate/license exchange, instead of the embedded Jasper web player.
+A native macOS live-news kiosk with **CP24, CityNews, and Global News Toronto**, built for Apple Silicon. Version **2.23** plays CP24 through AVPlayer using HLS and the broadcaster’s FairPlay certificate/license exchange, instead of the embedded Jasper web player.
 
 **[Download notarized v2.22 DMG for Apple Silicon](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.22/CP24-HLS-Kiosk-Notarized.dmg)** · [All releases](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases)
 
+
+### New in v2.23 — diagnostics, startup preferences, and update checks
+
+[Download v2.23 ZIP](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.23/CP24-HLS-Kiosk-v2.23-Apple-Silicon.zip)
+
+- **Playback diagnostics:** open **Channels → Playback Diagnostics…** (`Command-Option-D`). It refreshes about every five seconds with current channel/state, video resolution, the stream's reported bitrate, adaptive preferred bitrate cap, buffered seconds, fresh transfer throughput, and the eight most recent playback events. The event history includes buffering, resumption, quality changes, stalls, failures, and reload requests. It describes observed events; it cannot establish every freeze's root cause. Throughput is recent media-transfer throughput, not a general speed test.
+- **Startup channel:** in **Settings → Start with**, select **Last watched channel** (default), CP24, CityNews, or Global News Toronto. Last watched remembers channel selections and successful playback across app restarts; first launch falls back to CP24. Fixed startup choices always take precedence over the remembered channel. Changing startup does not change the current stream or rotation selection.
+- **Update notifications:** optional automatic checks use the public GitHub releases API after startup and roughly daily thereafter. Choose **Check for Updates…** in Settings or the app menu for a manual check. Only newer numeric versions with an uploaded DMG whose filename contains “Notarized” are offered; drafts, prereleases, unsigned-ZIP-only releases, and older versions are skipped. The app trusts this repository's asset labeling and does not itself verify notarization before download. A nonmodal notice offers **Download Update**, which opens the GitHub download in your browser; installation is manual. Automatic notices appear once per offered version. Turn automatic checks off in Settings. Failed automatic checks do not interrupt playback.
+- **Preferences now scrolls** so all existing reliability and channel-rotation settings remain accessible.
+
+**All three channel-rotation checkboxes remain available.** Startup choices and update checks are independent of rotation.
+
+**v2.23 needs fresh notarization.** This ZIP and local builds are ad-hoc signed; the recommended notarized DMG above remains v2.22.
 
 ### New in v2.22 — adaptive streaming
 
@@ -42,7 +55,7 @@ Adds Global News Toronto (key `3`) and saved per-channel rotation checkboxes in 
 
 1. Download and open **CP24-HLS-Kiosk-Notarized.dmg**.
 2. Quit the older kiosk app, then drag **CP24 HLS Kiosk.app** onto the **Applications** shortcut in the disk image.
-3. Open the app. It starts with CP24 in full screen.
+3. Open the app. v2.23 starts full screen with your chosen startup channel (or last watched); a first launch defaults to CP24.
 4. Press **Esc** to leave full screen, and use **Settings** to configure rotation and safeguards.
 
 **Recommended download: the notarized DMG.** Its stapled notarization ticket was validated, and macOS Gatekeeper accepted the included v2.22 app as **Notarized Developer ID** on October 26, 2026.
@@ -122,6 +135,7 @@ The **Stream Health Log** records app launches, channel loads, playback failures
 | `2` | CityNews |
 | `3` | Global News Toronto |
 | `Command-R` | Request current-stream recovery/reload |
+| `Command-Option-D` | Playback diagnostics |
 | `Esc` | Leave full screen |
 | `Command-,` | Settings |
 | `Command-Q` | Quit intentionally |
@@ -139,7 +153,7 @@ cd CP24-Kiosk-NativeARM
 The script compiles an optimized **arm64** executable targeting macOS 13, assembles the app with the included icon and metadata, applies an ad-hoc signature, and produces:
 
 - `build/CP24 HLS Kiosk.app`
-- `releases/CP24-HLS-Kiosk-v2.22-Apple-Silicon.zip`
+- `releases/CP24-HLS-Kiosk-v2.23-Apple-Silicon.zip`
 
 No earlier News TV Kiosk ZIP is required to build this repository. No third-party package installation or API key is required. Playback still requires the broadcaster’s license service.
 
@@ -175,3 +189,12 @@ Tests cover quality reductions, anti-flapping delays, slow upgrades, buffer and 
 ### v2.22 live validation (October 26, 2026)
 
 The updated PlayerViewController was exercised on all three feeds for approximately 25 seconds each. The repeat run produced 25 CP24, 25 CityNews, and 24 Global decoded-video samples with no final item errors. Injected stall notifications lowered preferred caps without replacing the current item; CP24's reduced cap survived rotation, and stopping removed the player item. An initial run encountered a CityNews playback failure before the simulated stall; the repeat run was clean. These short checks do not establish long-term reliability or eliminate upstream failures.
+
+## Startup and update tests
+
+```sh
+xcrun swiftc -parse-as-library Sources/CP24HLSKiosk/Channel.swift Sources/CP24HLSKiosk/StartupPreference.swift Sources/CP24HLSKiosk/UpdateChecker.swift Tests/StartupAndUpdatesTests.swift -o /tmp/cp24-startup-updates-tests
+/tmp/cp24-startup-updates-tests
+```
+
+Tests use isolated preferences, verify fixed/last-watched startup and numeric version ordering, filter release and asset fixtures, and perform a read-only live GitHub API check. The v2.23 diagnostics/startup probe decoded 14 Global video samples during a 15-second test and verified live metrics and a simulated stall event. Preferences, diagnostics, and a fixture update notice were rendered for layout review. No newer real release was available for an end-to-end update notification or installation test.

@@ -11,6 +11,12 @@ enum ReleaseNotes {
     static let archivePageSize = 20
 
     static let all: [ReleaseNote] = [
+        ReleaseNote(version: "v2.23", date: "2026-10-26", changes: [
+            "Added live playback diagnostics with resolution, bitrate, quality cap, buffer depth, and recent events.",
+            "Added Last watched and fixed-channel startup preferences.",
+            "Added daily opt-out GitHub update checks and manual checks for newer releases with notarized DMGs.",
+            "Made Preferences scrollable so all settings remain accessible."
+        ]),
         ReleaseNote(version: "v2.22", date: "2026-10-26", changes: [
             "Added connection-aware quality limits for CP24, CityNews, and Global.",
             "Lowers quality during buffering and raises it cautiously after sustained stable playback.",

@@ -49,6 +49,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var archiveStackView: NSStackView?
     private var archiveLoadMoreButton: NSButton?
     private var archiveVisibleCount = ReleaseNotes.archivePageSize
+    private var startupPopup: NSPopUpButton?
+    private var updatePreferenceButton: NSButton?
+    private var updateStatusLabel: NSTextField?
+    private var updateMenuItem: NSMenuItem?
+    private var updateTimer: Timer?
+    private var updateCheckInProgress = false
+    private var availableUpdate: AvailableUpdate?
+    private var updateNotice: NSPanel?
+    private var diagnosticsWindow: NSPanel?
+    private var diagnosticsText: NSTextView?
     private var rotationChannelButtons: [Channel: NSButton] = [:]
     private var rotationPopupButton: NSPopUpButton?
     private var launchAtLoginButton: NSButton?
@@ -95,12 +105,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         UserDefaults.standard.register(defaults: [
+            UpdateChecker.enabledKey: true,
             Self.launchAtLoginPreferenceKey: true,
             Self.disableSleepPreferenceKey: true,
             Self.restartOnUnhealthyPreferenceKey: true,
             Self.dailyRestartPreferenceKey: false,
             Self.dailyRestartMinutePreferenceKey: Self.defaultDailyRestartMinute
         ])
+        currentChannel = StartupPreference.channel(in: .standard)
+        UserDefaults.standard.set(currentChannel.rawValue, forKey: StartupPreference.lastChannelKey)
+        lastKnownGoodChannel = currentChannel
+        playerViewController.initialChannel = currentChannel
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         NSApp.applicationIconImage = NSImage(named: "NewsTVKioskIcon")
@@ -134,6 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         restartRotationTimer()
         startHealthRestartTimer()
         scheduleDailyRestart()
+        startUpdateChecks()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
             self?.enterFullScreen()
@@ -143,6 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         StreamHealthLog.append("App terminating")
         CrashWatchdog.shared.markIntentionalShutdown()
+        updateTimer?.invalidate()
         rotationTimer?.invalidate()
         healthRestartTimer?.invalidate()
         dailyRestartTimer?.invalidate()
@@ -1375,7 +1392,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let contentView = NSView()
         contentView.wantsLayer = true
         contentView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-        panel.contentView = contentView
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
+        panel.contentView = scroll
+        contentView.frame = NSRect(x: 0, y: 0, width: 720, height: 850)
+        scroll.documentView = contentView
+        contentView.autoresizingMask = [.width]
 
         let titleLabel = NSTextField(labelWithString: "Preferences")
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1468,6 +1492,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         rotationSelection.spacing = 8
         rotationSelection.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(rotationSelection)
+
+        let startupLabel = NSTextField(labelWithString: "Start with")
+        let startup = NSPopUpButton(frame: .zero, pullsDown: false)
+        startup.addItem(withTitle: "Last watched channel")
+        startup.lastItem?.representedObject = StartupPreference.lastWatched
+        for channel in Channel.allCases {
+            startup.addItem(withTitle: channel.title)
+            startup.lastItem?.representedObject = channel.rawValue
+        }
+        startup.target = self
+        startup.action = #selector(startupChanged(_:))
+        startupPopup = startup
+        let startupRow = NSStackView(views: [startupLabel, startup])
+        startupRow.spacing = 18
+        startupRow.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(startupRow)
+        let updates = NSButton(checkboxWithTitle: "Check daily for newer notarized releases", target: self, action: #selector(updatePreferenceChanged(_:)))
+        updatePreferenceButton = updates
+        let checkUpdates = NSButton(title: "Check for Updates…", target: self, action: #selector(checkForUpdatesManually))
+        checkUpdates.bezelStyle = .rounded
+        let updatesRow = NSStackView(views: [updates, checkUpdates])
+        updatesRow.spacing = 18
+        updatesRow.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(updatesRow)
+        let updateStatus = NSTextField(labelWithString: "Updates are downloaded from GitHub; installation is manual.")
+        updateStatus.font = .systemFont(ofSize: 11)
+        updateStatus.textColor = .secondaryLabelColor
+        updateStatus.translatesAutoresizingMaskIntoConstraints = false
+        updateStatusLabel = updateStatus
+        contentView.addSubview(updateStatus)
 
         let launchButton = NSButton(checkboxWithTitle: "Launch CP24 HLS Kiosk at login", target: self, action: #selector(launchAtLoginChanged(_:)))
         launchButton.translatesAutoresizingMaskIntoConstraints = false
@@ -1577,7 +1631,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             rotationSelection.topAnchor.constraint(equalTo: autoSwitchLabel.bottomAnchor, constant: 20),
             rotationSelection.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 34),
             rotationSelection.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -34),
-            launchButton.topAnchor.constraint(equalTo: rotationSelection.bottomAnchor, constant: 22),
+            startupRow.topAnchor.constraint(equalTo: rotationSelection.bottomAnchor, constant: 20),
+            startupRow.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 34),
+            startup.widthAnchor.constraint(equalToConstant: 260),
+            updatesRow.topAnchor.constraint(equalTo: startupRow.bottomAnchor, constant: 18),
+            updatesRow.leadingAnchor.constraint(equalTo: startupRow.leadingAnchor),
+            updateStatus.topAnchor.constraint(equalTo: updatesRow.bottomAnchor, constant: 6),
+            updateStatus.leadingAnchor.constraint(equalTo: startupRow.leadingAnchor),
+            updateStatus.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -34),
+            launchButton.topAnchor.constraint(equalTo: updateStatus.bottomAnchor, constant: 22),
             launchButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 34),
             launchButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -34),
 
@@ -1606,12 +1668,138 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             noteLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -34)
         ])
 
+        contentView.layoutSubtreeIfNeeded()
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, contentView.bounds.height - scroll.contentView.bounds.height)))
         settingsWindow = panel
         updateSettingsControls()
         startDashboardTimer()
         panel.center()
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func startupChanged(_ sender: NSPopUpButton) {
+        guard let choice = sender.selectedItem?.representedObject as? String else { return }
+        UserDefaults.standard.set(choice, forKey: StartupPreference.choiceKey)
+        StreamHealthLog.append("Startup channel preference: \(sender.titleOfSelectedItem ?? choice)")
+    }
+
+    @objc private func updatePreferenceChanged(_ sender: NSButton) {
+        UserDefaults.standard.set(sender.state == .on, forKey: UpdateChecker.enabledKey)
+    }
+
+    @objc private func showPlaybackDiagnostics() {
+        if let diagnosticsWindow {
+            diagnosticsText?.string = playerViewController.playbackDiagnostics
+            diagnosticsWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 720, height: 470), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        panel.title = "Playback Diagnostics"
+        panel.isReleasedWhenClosed = false
+        panel.level = .floating
+        panel.minSize = NSSize(width: 540, height: 340)
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        let text = NSTextView()
+        text.isEditable = false
+        text.isSelectable = true
+        text.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        text.textContainerInset = NSSize(width: 18, height: 18)
+        text.isHorizontallyResizable = false
+        text.autoresizingMask = [.width]
+        text.textContainer?.widthTracksTextView = true
+        scroll.documentView = text
+        panel.contentView = scroll
+        text.frame = scroll.contentView.bounds
+        text.string = playerViewController.playbackDiagnostics
+        diagnosticsText = text
+        diagnosticsWindow = panel
+        startDashboardTimer()
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    private func startUpdateChecks() {
+        updateTimer?.invalidate()
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 6 * 60 * 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkForUpdates(manual: false) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in self?.checkForUpdates(manual: false) }
+    }
+
+    @objc private func checkForUpdatesManually() { checkForUpdates(manual: true) }
+
+    private func checkForUpdates(manual: Bool) {
+        guard !updateCheckInProgress else { return }
+        if !manual {
+            guard UserDefaults.standard.object(forKey: UpdateChecker.enabledKey) as? Bool != false else { return }
+            if let last = UserDefaults.standard.object(forKey: UpdateChecker.lastCheckKey) as? Date,
+               Date().timeIntervalSince(last) < 24 * 60 * 60 { return }
+        }
+        updateCheckInProgress = true
+        updateStatusLabel?.stringValue = "Checking GitHub…"
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "2.23"
+        Task { @MainActor in
+            defer { updateCheckInProgress = false }
+            do {
+                let update = try await UpdateChecker.fetch(newerThan: version)
+                UserDefaults.standard.set(Date(), forKey: UpdateChecker.lastCheckKey)
+                availableUpdate = update
+                if !manual && UserDefaults.standard.object(forKey: UpdateChecker.enabledKey) as? Bool == false { return }
+                if let update {
+                    updateStatusLabel?.stringValue = "\(update.version) is available as a notarized DMG."
+                    updateMenuItem?.title = "Update Available: \(update.version)…"
+                    let notifiedKey = "LastNotifiedUpdate"
+                    if manual || UserDefaults.standard.string(forKey: notifiedKey) != update.version {
+                        showUpdateNotice(update)
+                        UserDefaults.standard.set(update.version, forKey: notifiedKey)
+                    }
+                } else {
+                    updateStatusLabel?.stringValue = "No newer notarized release found. Checked just now."
+                    if manual { showAlert(title: "Software Updates", message: "No newer release with a notarized DMG is available on GitHub.") }
+                }
+            } catch {
+                updateStatusLabel?.stringValue = "Update check failed. Try again later."
+                StreamHealthLog.append("Update check failed: \(error.localizedDescription)")
+                if manual { showAlert(title: "Update Check Failed", message: error.localizedDescription) }
+            }
+        }
+    }
+
+    private func showUpdateNotice(_ update: AvailableUpdate) {
+        updateNotice?.close()
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 470, height: 160), styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: false)
+        panel.title = "Update Available"
+        let noticeContent = NSView()
+        noticeContent.wantsLayer = true
+        noticeContent.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        panel.contentView = noticeContent
+        panel.isReleasedWhenClosed = false
+        panel.level = .floating
+        panel.collectionBehavior = [.fullScreenAuxiliary, .moveToActiveSpace]
+        let label = NSTextField(wrappingLabelWithString: "CP24 HLS Kiosk \(update.version) is available with a notarized DMG. Download it from GitHub and quit this app before installing.")
+        let button = NSButton(title: "Download Update", target: self, action: #selector(downloadAvailableUpdate))
+        button.bezelStyle = .rounded
+        let stack = NSStackView(views: [label, button])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 18
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        panel.contentView!.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: panel.contentView!.leadingAnchor, constant: 22),
+            stack.trailingAnchor.constraint(equalTo: panel.contentView!.trailingAnchor, constant: -22),
+            stack.topAnchor.constraint(equalTo: panel.contentView!.topAnchor, constant: 22)
+        ])
+        updateNotice = panel
+        panel.center()
+        panel.orderFrontRegardless()
+    }
+
+    @objc private func downloadAvailableUpdate() {
+        guard let update = availableUpdate else { return }
+        NSWorkspace.shared.open(update.downloadURL)
     }
 
     @objc private func rotationChannelChanged(_ sender: NSButton) {
@@ -1801,6 +1989,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         StreamHealthLog.append("\(userInitiated ? "Manual" : "Automatic") channel switch: \(currentChannel.title) to \(channel.title)")
         currentChannel = channel
+        UserDefaults.standard.set(channel.rawValue, forKey: StartupPreference.lastChannelKey)
         updateMenuState()
         refreshDashboard()
         playerViewController.load(channel)
@@ -1862,6 +2051,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let settings = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow), keyEquivalent: ",")
         settings.target = self
         appMenu.addItem(settings)
+        let updates = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdatesManually), keyEquivalent: "")
+        updates.target = self
+        appMenu.addItem(updates)
+        updateMenuItem = updates
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Quit CP24 HLS Kiosk", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
@@ -1888,6 +2081,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         channelsMenu.addItem(global)
         channelMenuItems[.globalToronto] = global
 
+        let diagnostics = NSMenuItem(title: "Playback Diagnostics…", action: #selector(showPlaybackDiagnostics), keyEquivalent: "d")
+        diagnostics.keyEquivalentModifierMask = [.command, .option]
+        diagnostics.target = self
+        channelsMenu.addItem(diagnostics)
         channelsMenu.addItem(.separator())
         let recover = NSMenuItem(title: "Reload Stream", action: #selector(recoverStream), keyEquivalent: "r")
         recover.keyEquivalentModifierMask = [.command]
@@ -2001,6 +2198,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func updateSettingsControls() {
+        let choice = UserDefaults.standard.string(forKey: StartupPreference.choiceKey) ?? StartupPreference.lastWatched
+        if let item = startupPopup?.itemArray.first(where: { $0.representedObject as? String == choice }) {
+            startupPopup?.select(item)
+        }
+        updatePreferenceButton?.state = UserDefaults.standard.object(forKey: UpdateChecker.enabledKey) as? Bool == false ? .off : .on
         let included = ChannelRotation.included(in: .standard)
         for (channel, button) in rotationChannelButtons {
             button.state = included.contains(channel) ? .on : .off
@@ -2049,6 +2251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func handlePlayerHealth(isHealthy: Bool, reason: String) {
         if isHealthy {
             lastHealthyAt = Date()
+            UserDefaults.standard.set(currentChannel.rawValue, forKey: StartupPreference.lastChannelKey)
             lastKnownGoodChannel = currentChannel
             failedChannelCooldowns.removeValue(forKey: currentChannel)
             unhealthySince = nil
@@ -2097,6 +2300,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func refreshDashboard() {
         clearExpiredChannelCooldowns()
+        diagnosticsText?.string = playerViewController.playbackDiagnostics
         let currentChannelText = currentChannel.title
         let lastGoodText = lastKnownGoodChannel.title
         let lastHealthyText = timeAgo(from: lastHealthyAt)

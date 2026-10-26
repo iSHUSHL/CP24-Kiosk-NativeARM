@@ -4,6 +4,9 @@ import AVKit
 
 @MainActor
 final class PlayerViewController: NSViewController {
+    var initialChannel: Channel = .cp24
+    private(set) var lastPlaybackEvent = "Not started"
+    private var recentPlaybackEvents: [String] = []
     var fallbackRequested: ((Channel) -> Void)?
     var healthStatusChanged: ((Bool, String) -> Void)?
 
@@ -111,13 +114,14 @@ final class PlayerViewController: NSViewController {
         player.allowsExternalPlayback = false
         player.automaticallyWaitsToMinimizeStalling = true
         StreamHealthLog.append("Player ready")
-        load(.cp24, reason: "Starting CP24")
+        load(initialChannel, reason: "Starting \(initialChannel.title)")
         startMonitoring()
     }
 
     func load(_ channel: Channel, reason: String? = nil) {
         isStoppedByUser = false
         currentChannel = channel
+        recordPlaybackEvent(reason ?? "Channel selected")
         resetHealth()
         StreamHealthLog.append("Loading \(channel.title): \(reason ?? "channel switch")")
         showStatus(reason ?? "Switching to \(channel.title)")
@@ -136,6 +140,7 @@ final class PlayerViewController: NSViewController {
         guard now.timeIntervalSince(lastRecoveryAt) >= recoveryDelay else { return }
         recordRecoveryAttempt(at: now)
         markUnhealthy(reason)
+        recordPlaybackEvent("Reload requested: " + reason)
         StreamHealthLog.append("Recovery attempt \(recoveryAttemptsInWindow) for \(currentChannel.title): \(reason)")
 
         lastRecoveryAt = now
@@ -164,6 +169,7 @@ final class PlayerViewController: NSViewController {
 
     func stopPlayback() {
         StreamHealthLog.append("Stopping playback for \(currentChannel.title)")
+        recordPlaybackEvent("Playback stopped")
         isStoppedByUser = true
         monitorTimer?.invalidate()
         monitorTimer = nil
@@ -294,6 +300,7 @@ final class PlayerViewController: NSViewController {
         guard let item = notification.object as? AVPlayerItem, player.currentItem === item,
               !isStoppedByUser, !isWaitingForNetwork,
               !player.isOutputObscuredDueToInsufficientExternalProtection else { return }
+        recordPlaybackEvent("Playback stalled; allowing buffer refill")
         stablePlaybackSince = nil
         if channelQuality[currentChannel, default: AdaptiveQuality()].reduce(at: Date()) {
             applyQuality(to: item, reason: "Playback stalled")
@@ -306,6 +313,7 @@ final class PlayerViewController: NSViewController {
     @objc private func nativeItemFailed(_ notification: Notification) {
         guard let item = notification.object as? AVPlayerItem, player.currentItem === item else { return }
         let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+        recordPlaybackEvent("Playback failure: " + (error?.localizedDescription ?? item.error?.localizedDescription ?? "Unknown error"))
         StreamHealthLog.append("Native stream playback failure for \(currentChannel.title): \(error?.localizedDescription ?? item.error?.localizedDescription ?? "unknown error")")
         recoverNow(reason: "Stream failed")
     }
@@ -397,6 +405,7 @@ final class PlayerViewController: NSViewController {
 
     private func applyQuality(to item: AVPlayerItem, reason: String) {
         let quality = channelQuality[currentChannel] ?? AdaptiveQuality()
+        recordPlaybackEvent("Quality cap \(quality.peakBitRate / 1_000_000) Mbps: \(reason)")
         item.preferredPeakBitRate = quality.peakBitRate
         item.preferredForwardBufferDuration = quality.forwardBuffer
         StreamHealthLog.append("Adaptive quality for \(currentChannel.title): \(quality.peakBitRate / 1_000_000) Mbps preferred cap, \(Int(quality.forwardBuffer))s buffer — \(reason)")
@@ -435,8 +444,12 @@ final class PlayerViewController: NSViewController {
         let buffering = !progressing && (item.isPlaybackBufferEmpty || player.timeControlStatus == .waitingToPlayAtSpecifiedRate)
         if buffering {
             stablePlaybackSince = nil
-            if bufferingSince == nil { bufferingSince = now }
+            if bufferingSince == nil {
+                bufferingSince = now
+                recordPlaybackEvent("Buffering started")
+            }
         } else {
+            if bufferingSince != nil && progressing { recordPlaybackEvent("Playback resumed after buffering") }
             bufferingSince = nil
             if !progressing { stablePlaybackSince = nil }
         }
@@ -451,6 +464,44 @@ final class PlayerViewController: NSViewController {
             markUnhealthy("Buffering")
             showStatus("Buffering \(currentChannel.title) — adapting quality")
         }
+    }
+
+    private func recordPlaybackEvent(_ message: String) {
+        let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        lastPlaybackEvent = "\(stamp) — \(currentChannel.title): \(message)"
+        recentPlaybackEvents.append(lastPlaybackEvent)
+        if recentPlaybackEvents.count > 8 { recentPlaybackEvents.removeFirst() }
+    }
+
+    var playbackDiagnostics: String {
+        guard let item = player.currentItem else {
+            return "Playback stopped.\n\nRecent events\n" + recentPlaybackEvents.joined(separator: "\n")
+        }
+        let time = player.currentTime().seconds
+        let buffered = time.isFinite ? item.loadedTimeRanges.map(\.timeRangeValue).filter {
+            $0.start.seconds <= time + 0.1 && CMTimeRangeGetEnd($0).seconds >= time
+        }.map { CMTimeRangeGetEnd($0).seconds - time }.max() ?? 0 : 0
+        let size = item.presentationSize
+        let resolution = size.width.isFinite && size.height.isFinite && size.width > 0 && size.height > 0 ? "\(Int(size.width)) × \(Int(size.height))" : "Waiting for video"
+        let indicated = item.accessLog()?.events.last?.indicatedBitrate ?? 0
+        let bitrate = indicated.isFinite && indicated > 0 ? String(format: "%.2f Mbps", indicated / 1_000_000) : "Not reported"
+        let throughput = Date().timeIntervalSince(throughputAt) <= 15 ? lastThroughput : nil
+        let speed = throughput.flatMap { $0.isFinite && $0 > 0 ? String(format: "%.2f Mbps", $0 / 1_000_000) : nil } ?? "Waiting for fresh measurement"
+        let state = player.isOutputObscuredDueToInsufficientExternalProtection ? "Protected output blocked" :
+            (isWaitingForNetwork ? "Waiting for network" : (player.timeControlStatus == .playing ? "Playing" : "Paused / buffering"))
+        return """
+        Channel: \(currentChannel.title) • \(state)
+        Video resolution: \(resolution)
+        Reported stream bitrate: \(bitrate)
+        Adaptive quality limit: \(String(format: "%.2f", item.preferredPeakBitRate / 1_000_000)) Mbps (preferred)
+        Buffered ahead: \(String(format: "%.1f", buffered)) seconds
+        Recent transfer throughput: \(speed)
+
+        Recent events (latest at bottom)
+        \(recentPlaybackEvents.joined(separator: "\n"))
+
+        A stall notification does not identify its root cause. Throughput measures recent media downloads, not a full internet speed test.
+        """
     }
 
     private func resetHealth() {
