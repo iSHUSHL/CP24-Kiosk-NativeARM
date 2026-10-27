@@ -27,9 +27,11 @@ final class PlayerViewController: NSViewController {
     private var transferDuration: TimeInterval = 0
     private var lastThroughput: Double?
     private var throughputAt = Date.distantPast
+    private var pendingRecoveryTimer: Timer?
     private var monitorTimer: Timer?
     private var statusTimer: Timer?
     private var nowPlayingTimer: Timer?
+    private var hasPlayedSinceLoad = false
     private var lastPlayerTime: Double?
     private var lastProgressAt = Date()
     private var lastRecoveryAt = Date.distantPast
@@ -137,7 +139,25 @@ final class PlayerViewController: NSViewController {
     func recoverNow(reason: String) {
         guard !isStoppedByUser, !isWaitingForNetwork else { return }
         let now = Date()
-        guard now.timeIntervalSince(lastRecoveryAt) >= recoveryDelay else { return }
+        let remaining = recoveryDelay - now.timeIntervalSince(lastRecoveryAt)
+        if remaining > 0 {
+            if pendingRecoveryTimer == nil {
+                let expectedItem = player.currentItem
+                let expectedChannel = currentChannel
+                pendingRecoveryTimer = Timer.scheduledTimer(withTimeInterval: remaining + 0.1, repeats: false) { [weak self] _ in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        self.pendingRecoveryTimer = nil
+                        guard self.currentChannel == expectedChannel, self.player.currentItem === expectedItem else { return }
+                        self.recoverNow(reason: reason)
+                    }
+                }
+                recordPlaybackEvent("Recovery queued after retry backoff: " + reason)
+            }
+            return
+        }
+        pendingRecoveryTimer?.invalidate()
+        pendingRecoveryTimer = nil
         recordRecoveryAttempt(at: now)
         markUnhealthy(reason)
         recordPlaybackEvent("Reload requested: " + reason)
@@ -189,6 +209,10 @@ final class PlayerViewController: NSViewController {
 
     func showNetworkWaiting(_ waiting: Bool) {
         isWaitingForNetwork = waiting
+        if waiting {
+            pendingRecoveryTimer?.invalidate()
+            pendingRecoveryTimer = nil
+        }
         channelQuality[currentChannel]?.interruptStability()
         stablePlaybackSince = nil
         statusTimer?.invalidate()
@@ -222,6 +246,7 @@ final class PlayerViewController: NSViewController {
         quality.interruptStability()
         channelQuality[currentChannel] = quality
         qualityLastTime = nil
+        hasPlayedSinceLoad = false
         bufferingSince = nil
         stablePlaybackSince = nil
         transferBytes = 0
@@ -242,6 +267,13 @@ final class PlayerViewController: NSViewController {
             self,
             selector: #selector(nativeItemFailed(_:)),
             name: .AVPlayerItemFailedToPlayToEndTime,
+            object: item
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(nativeItemEnded(_:)),
+            name: .AVPlayerItemDidPlayToEndTime,
             object: item
         )
 
@@ -281,6 +313,8 @@ final class PlayerViewController: NSViewController {
     }
 
     private func clearNativeObservers() {
+        pendingRecoveryTimer?.invalidate()
+        pendingRecoveryTimer = nil
         itemStatusObservation?.invalidate()
         timeControlObservation?.invalidate()
         itemStatusObservation = nil
@@ -308,6 +342,14 @@ final class PlayerViewController: NSViewController {
         StreamHealthLog.append("Native stream stalled for \(currentChannel.title)")
         // Let AVPlayer refill its buffer; the health monitor retries sustained stalls.
         player.play()
+    }
+
+    @objc private func nativeItemEnded(_ notification: Notification) {
+        guard let item = notification.object as? AVPlayerItem, player.currentItem === item,
+              !isStoppedByUser else { return }
+        recordPlaybackEvent("Live feed ended; requesting recovery")
+        StreamHealthLog.append("Live feed ended for \(currentChannel.title)")
+        recoverNow(reason: "Live feed ended")
     }
 
     @objc private func nativeItemFailed(_ notification: Notification) {
@@ -361,8 +403,7 @@ final class PlayerViewController: NSViewController {
         let seconds = player.currentTime().seconds
         if seconds.isFinite {
             if let previous = lastPlayerTime, seconds > previous + 0.25 {
-                lastProgressAt = Date()
-                if nativeVideoIsVisible(on: item) {
+                if nativeVideoIsVisible(on: item), Date().timeIntervalSince(lastProgressAt) < 10 {
                     if stablePlaybackSince == nil { stablePlaybackSince = Date() }
                     if Date().timeIntervalSince(stablePlaybackSince!) >= 60 {
                         recoveryDelay = 6
@@ -370,10 +411,6 @@ final class PlayerViewController: NSViewController {
                     }
                     markHealthy("Native playback progressing")
                 }
-            }
-
-            if lastPlayerTime == nil {
-                lastProgressAt = Date()
             }
 
             lastPlayerTime = seconds
@@ -391,15 +428,18 @@ final class PlayerViewController: NSViewController {
 
         if nativeVideoIsVisible(on: item) { consecutiveMissingVideoChecks = 0 }
 
-        if item.isPlaybackBufferEmpty && Date().timeIntervalSince(lastProgressAt) > 45 {
-            StreamHealthLog.append("Health check: buffer empty too long for \(currentChannel.title)")
-            recoverNow(reason: "Buffering too long")
-            return
-        }
+        recoverIfPlaybackFrozen(item)
+    }
 
-        if Date().timeIntervalSince(lastProgressAt) > 75 {
-            StreamHealthLog.append("Health check: no playback progress for \(currentChannel.title)")
-            recoverNow(reason: "Playback stopped")
+    private func recoverIfPlaybackFrozen(_ item: AVPlayerItem) {
+        guard !isStoppedByUser, !isWaitingForNetwork,
+              !player.isOutputObscuredDueToInsufficientExternalProtection else { return }
+        if let reason = PlaybackRecoveryPolicy.reason(
+            secondsWithoutProgress: Date().timeIntervalSince(lastProgressAt),
+            secondsSinceLoad: Date().timeIntervalSince(loadedAt),
+            hasPlayed: hasPlayedSinceLoad,
+            buffering: item.isPlaybackBufferEmpty || player.timeControlStatus == .waitingToPlayAtSpecifiedRate) {
+            recoverNow(reason: reason)
         }
     }
 
@@ -424,6 +464,10 @@ final class PlayerViewController: NSViewController {
         guard seconds.isFinite else { return }
         let progressing = qualityLastTime.map { seconds > $0 + 0.25 } ?? false
         qualityLastTime = seconds
+        if progressing {
+            lastProgressAt = now
+            hasPlayedSinceLoad = true
+        }
         let ahead = item.loadedTimeRanges.map(\.timeRangeValue).filter {
             let start = $0.start.seconds
             return start <= seconds + 0.1 && CMTimeRangeGetEnd($0).seconds >= seconds
@@ -464,6 +508,7 @@ final class PlayerViewController: NSViewController {
             markUnhealthy("Buffering")
             showStatus("Buffering \(currentChannel.title) — adapting quality")
         }
+        recoverIfPlaybackFrozen(item)
     }
 
     private func recordPlaybackEvent(_ message: String) {

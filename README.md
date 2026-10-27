@@ -1,9 +1,21 @@
 # CP24 HLS Kiosk — Native Apple Silicon
 
-A native macOS live-news kiosk with **CP24, CityNews, and Global News Toronto**, built for Apple Silicon. Version **2.23** plays CP24 through AVPlayer using HLS and the broadcaster’s FairPlay certificate/license exchange, instead of the embedded Jasper web player.
+A native macOS live-news kiosk with **CP24, CityNews, and Global News Toronto**, built for Apple Silicon. Version **2.24** plays CP24 through AVPlayer using HLS and the broadcaster’s FairPlay certificate/license exchange, instead of the embedded Jasper web player.
 
 **[Download notarized v2.23 DMG for Apple Silicon](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.23/CP24-HLS-Kiosk-Notarized.dmg)** · [All releases](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases)
 
+
+### New in v2.24 — CityNews source repair
+
+[Download v2.24 ZIP](https://github.com/iSHUSHL/CP24-Kiosk-NativeARM/releases/download/v2.24/CP24-HLS-Kiosk-v2.24-Apple-Silicon.zip)
+
+The previous CityNews HLS source was serving ended video playlists (`#EXT-X-ENDLIST`) with final segments dated October 26, 2026. On October 27, the [official CityNews Toronto live player](https://toronto.citynews.ca/video/) supplied a different HLS source. The app now uses that current source; all three of its quality variants were checked for current live segments and absence of the end marker.
+
+The player checks progress every five seconds and requests a reload after 15 seconds without detected progress once playback has started (typically detected within about 15–30 seconds). Initial startup gets 45 seconds to load. Explicit failures and live-end events request recovery immediately. The 10-minute setting remains a last-resort whole-app relaunch, not the first stream recovery.
+
+Also adds immediate recovery on a live item's end notification, using the existing retry backoff and selected-channel fallback rules. Recovery requests arriving during backoff are queued for the next allowed attempt, and canceled when the player stops, goes offline, or switches items. The app keeps retrying when no selected fallback is available. Notifications from replaced items are ignored. Adaptive quality, all rotation checkboxes, startup selection, diagnostics, and update checks are retained. This fixes the ended-source issue; it cannot guarantee freedom from broadcaster or network interruptions.
+
+**v2.24 needs fresh notarization.** The ZIP is ad-hoc signed; the recommended notarized DMG above remains v2.23.
 
 ### New in v2.23 — diagnostics, startup preferences, and update checks
 
@@ -153,7 +165,7 @@ cd CP24-Kiosk-NativeARM
 The script compiles an optimized **arm64** executable targeting macOS 13, assembles the app with the included icon and metadata, applies an ad-hoc signature, and produces:
 
 - `build/CP24 HLS Kiosk.app`
-- `releases/CP24-HLS-Kiosk-v2.23-Apple-Silicon.zip`
+- `releases/CP24-HLS-Kiosk-v2.24-Apple-Silicon.zip`
 
 No earlier News TV Kiosk ZIP is required to build this repository. No third-party package installation or API key is required. Playback still requires the broadcaster’s license service.
 
@@ -198,3 +210,26 @@ xcrun swiftc -parse-as-library Sources/CP24HLSKiosk/Channel.swift Sources/CP24HL
 ```
 
 Tests use isolated preferences, verify fixed/last-watched startup and numeric version ordering, filter release and asset fixtures, and perform a read-only live GitHub API check. The v2.23 diagnostics/startup probe decoded 14 Global video samples during a 15-second test and verified live metrics and a simulated stall event. Preferences, diagnostics, and a fixture update notice were rendered for layout review. No newer real release was available for an end-to-end update notification or installation test.
+
+## CityNews live-source and end-recovery test
+
+This opt-in integration check uses the actual live feed for two minutes, checks decoded video and continuity, and injects end notifications to verify prompt recovery and stale-item filtering. It plays muted and does not start the kiosk, login-item, watchdog, or sleep services.
+
+```sh
+xcrun swiftc -suppress-warnings -parse-as-library Sources/CP24HLSKiosk/PlayerViewController.swift Sources/CP24HLSKiosk/Channel.swift Sources/CP24HLSKiosk/AdaptiveQuality.swift Sources/CP24HLSKiosk/PlaybackRecoveryPolicy.swift Sources/CP24HLSKiosk/FairPlayResourceLoader.swift Sources/CP24HLSKiosk/StreamHealthLog.swift Tests/CityNewsLiveTests.swift -o /tmp/citynews-live-tests
+/tmp/citynews-live-tests
+```
+
+### v2.24 validation
+
+On October 27, 2026, the corrected CityNews source produced 120 decoded-video samples during a two-minute check, stayed on the same player item, and reported no player error. Synthetic live-end notifications triggered recovery and stale-item notifications were ignored. A separate integration test verifies retry requests during backoff execute on time and are canceled on stop. This is not a 24-hour or long-duration endurance result.
+
+For unattended operation, keep multiple channels enabled in rotation/fallback, the crash watchdog and unhealthy-stream restart available, and sleep prevention enabled as appropriate. The app retries and uses selected available fallbacks; it cannot guarantee uninterrupted output during broadcaster outages, loss of power/internet, macOS interruptions, or CP24 protected-output blocking.
+
+Fast recovery policy tests are in `Tests/PlaybackRecoveryPolicyTests.swift`. `Tests/FastFreezeRecoveryTests.swift` simulates a silent stopped playhead against the real CityNews player to verify that recovery happens promptly. `Tests/RecoveryBackoffTests.swift` verifies queued retries and cancellation. These tests exercise recovery mechanisms; they do not establish uninterrupted 24/7 availability.
+
+The silent-stop integration test reloaded a deliberately paused/stopped playhead in 23.7 seconds. The recovery threshold is 15 seconds without detected progress; polling and system scheduling add detection delay. This is separate from immediate error/end callbacks and the last-resort 10-minute app relaunch.
+
+Network status notifications now reload playback only after an offline-to-online transition, rather than also reloading on startup or a change in metered-network status.
+
+The final faster-watchdog player also completed a fresh two-minute CityNews run with 120 decoded samples, no item replacement, and no error. A network-transition check confirmed initial/metered online notifications preserve the current item and an actual offline-to-online transition requests recovery.

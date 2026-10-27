@@ -11,6 +11,14 @@ enum ReleaseNotes {
     static let archivePageSize = 20
 
     static let all: [ReleaseNote] = [
+        ReleaseNote(version: "v2.24", date: "2026-10-27", changes: [
+            "Updated CityNews Toronto to the current HLS source used by its official live player.",
+            "The previous CityNews feed had ended; reducing quality could not restore that source.",
+            "Added immediate recovery when a live player reaches the end of its feed.",
+            "Queues recovery requests during backoff so short-lived failures cannot leave playback stopped.",
+            "Checks progress every five seconds and reloads after about 15–30 seconds of silent freezing after playback begins.",
+            "Avoids reloading healthy playback on initial online or metered-status notifications."
+        ]),
         ReleaseNote(version: "v2.23", date: "2026-10-26", changes: [
             "Added live playback diagnostics with resolution, bitrate, quality cap, buffer depth, and recent events.",
             "Added Last watched and fixed-channel startup preferences.",

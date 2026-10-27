@@ -2264,12 +2264,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func handleNetworkStatus(isOnline: Bool, detail: String) {
         guard isNetworkOnline != isOnline || networkStatusText != detail else { return }
+        let wasOnline = isNetworkOnline
         isNetworkOnline = isOnline
         networkStatusText = detail
         if isOnline {
             StreamHealthLog.append("Network available: \(detail)")
             playerViewController.showNetworkWaiting(false)
-            if !isPlayerStoppedByClose {
+            if !wasOnline && !isPlayerStoppedByClose {
                 playerViewController.recoverNow(reason: "Network restored")
             }
         } else {
