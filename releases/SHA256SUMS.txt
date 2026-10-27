@@ -3,5 +3,5 @@ d1b26ea775e413a44349cc14e6b51b06e195e1d4996ff59167b76184c8ecedaa  releases/CP24-
 42cacba0f7f91c0f67d1e519d69b509a35d0666b99113a0d1a186fafc39125ae  CP24-HLS-Kiosk-Notarized-2.dmg
 8ad6a5a19ef577d5e3c5236b38e39d73418c4c624cd3d3c5142daa98e9d691ae  releases/CP24-HLS-Kiosk-v2.22-Apple-Silicon.zip
 578e07bf2153ebfe902860b0d07170b8c9387de1d676f0953c0f8d331a472e91  releases/CP24-HLS-Kiosk-v2.23-Apple-Silicon.zip
-594eee4edfb445c40b92dc925dca79334d2f0a59abcb9967d2b69336755da021  CP24-HLS-Kiosk-Notarized.dmg
 996db1af81410382ee9481772fba335ef094f4c31d76ef4f9c3539be2dbf4e78  releases/CP24-HLS-Kiosk-v2.24-Apple-Silicon.zip
+0ddeb02397b999afe8c30f55e279a6aef3fddb14d686eb91d476becedf5d5025  CP24-HLS-Kiosk-Notarized.dmg
